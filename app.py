@@ -501,25 +501,35 @@ class UIService:
        """渲染预测输入区域 + AI生成事件建议（优化版）"""
     
     # ========================
-    # 新增：AI生成事件建议区域（放在输入框上方）
+    # AI生成事件建议区域
     # ========================
        with st.expander("🔍 AI生成事件建议（可选）", expanded=False):
         categories = create_events.load_categories()
 
         # 国家选择
-        country = st.selectbox("选择国家或地区", options=categories["countries"], key="country_selector")
+        country = st.selectbox("选择国家或地区", 
+                             options=categories["countries"], 
+                             key="country_selector")
 
         # 大类选择
         market_options = list(categories["market_categories"].keys())
-        market = st.selectbox("选择预测市场大类", options=market_options, key="market_selector")
+        market = st.selectbox("选择预测市场大类", 
+                            options=market_options, 
+                            key="market_selector")
 
         # 小类选择
         subcategory_options = categories["market_categories"][market]
-        subcategory = st.selectbox("选择预测市场小类", options=subcategory_options, key="subcategory_selector")
+        subcategory = st.selectbox("选择预测市场小类", 
+                                 options=subcategory_options, 
+                                 key="subcategory_selector")
 
-        if st.button("生成事件建议", use_container_width=True, key="generate_suggested_events"):
+        if st.button("生成事件建议", 
+                    use_container_width=True, 
+                    key="generate_suggested_events"):
             with st.spinner("正在生成事件建议..."):
-                suggested_events = create_events.generate_suggested_events(country, market, subcategory)
+                suggested_events = create_events.generate_suggested_events(
+                    country, market, subcategory
+                )
                 if suggested_events:
                     st.session_state.suggested_events = suggested_events
                 else:
@@ -528,18 +538,27 @@ class UIService:
         if "suggested_events" in st.session_state:
             st.markdown("#### 📋 事件建议列表")
             for idx, event in enumerate(st.session_state.suggested_events):
-                if st.button(f"✅ {event}", key=f"event_suggestion_{idx}", use_container_width=True):
-                    st.session_state.selected_event_for_input = event
+                if st.button(f"✅ {event}", 
+                           key=f"event_suggestion_{idx}", 
+                           use_container_width=True):
+                    st.session_state.new_event_input = event  # 直接更新输入框值
                     st.session_state.current_event = event
                     st.rerun()
 
     # ========================
-    # 原始事件输入框（保留原有逻辑）
+    # 事件输入区域（修正版）
     # ========================
+    # 初始化输入框值
+       if "new_event_input" not in st.session_state:
+        st.session_state.new_event_input = (
+            st.session_state.selected_event_for_input 
+            or st.session_state.current_event
+            or ""
+        )
+
        event_input = st.text_input(
         "输入您想预测的事件",
-        value=st.session_state.selected_event_for_input or st.session_state.current_event,
-        key="new_event_input",
+        key="new_event_input",  # 只使用key，不设置value参数
         placeholder="例如：'2028年特朗普再次当选美国总统的可能性'"
        )
 
