@@ -500,16 +500,12 @@ class UIService:
             )
 
     def render_prediction_input(self):
-       """渲染预测输入区域 + AI生成事件建议"""
-       event_input = st.text_input(
-        "输入您想预测的事件",
-        value=st.session_state.selected_event_for_input or st.session_state.current_event,
-        key="new_event_input",
-        placeholder="例如：'2028年特朗普再次当选美国总统的可能性'"
-       )
-
-    # AI生成事件建议
-       with st.expander("🔍 生成预测事件建议（推荐）"):
+       """渲染预测输入区域 + AI生成事件建议（优化版）"""
+    
+    # ========================
+    # 新增：AI生成事件建议区域（放在输入框上方）
+    # ========================
+       with st.expander("🔍 AI生成事件建议（可选）", expanded=False):
         categories = create_events.load_categories()
 
         # 国家选择
@@ -523,7 +519,7 @@ class UIService:
         subcategory_options = categories["market_categories"][market]
         subcategory = st.selectbox("选择预测市场小类", options=subcategory_options, key="subcategory_selector")
 
-        if st.button("生成事件建议", use_container_width=True):
+        if st.button("生成事件建议", use_container_width=True, key="generate_suggested_events"):
             with st.spinner("正在生成事件建议..."):
                 suggested_events = create_events.generate_suggested_events(country, market, subcategory)
                 if suggested_events:
@@ -532,11 +528,22 @@ class UIService:
                     st.warning("未能生成事件，请稍后再试")
 
         if "suggested_events" in st.session_state:
-            selected_event = st.selectbox("从建议中选择一个事件", options=st.session_state.suggested_events)
-            if st.button("使用该事件", use_container_width=True):
-                st.session_state.selected_event_for_input = selected_event
-                st.session_state.current_event = selected_event
-                st.rerun()
+            st.markdown("#### 📋 事件建议列表")
+            for idx, event in enumerate(st.session_state.suggested_events):
+                if st.button(f"✅ {event}", key=f"event_suggestion_{idx}", use_container_width=True):
+                    st.session_state.selected_event_for_input = event
+                    st.session_state.current_event = event
+                    st.rerun()
+
+    # ========================
+    # 原始事件输入框（保留原有逻辑）
+    # ========================
+       event_input = st.text_input(
+        "输入您想预测的事件",
+        value=st.session_state.selected_event_for_input or st.session_state.get("current_event", ""),
+        key="new_event_input",
+        placeholder="例如：'2028年特朗普再次当选美国总统的可能性'"
+       )
 
     # 提交预测按钮
        if st.button(
