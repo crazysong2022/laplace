@@ -18,6 +18,7 @@ from psycopg2.extras import DictCursor
 # 自定义模块
 from comments import init_comments_table, display_comments_section
 from reasoning import ReasoningService
+import create_events
 
 # 加载环境变量
 load_dotenv()
@@ -293,10 +294,11 @@ class UIService:
         """初始化会话状态"""
         session_defaults = {
             "current_event": "",
-            "event_input": "",
+            "new_event_input": "",
             "events_cache": self.prediction_service.db_service.get_recent_events(),
             "refresh_cache": False,
             "event_page": 1,
+            "show_event_list": True,  # 新增：控制事件列表显示
         }
         for key, value in session_defaults.items():
             if key not in st.session_state:
@@ -361,13 +363,30 @@ class UIService:
                     margin: 10px 0;
                     color: #6c757d;
                 }
+                .event-list-container {
+                    max-height: 400px;
+                    overflow-y: auto;
+                    margin: 15px 0;
+                    padding: 10px;
+                    border: 1px solid #eee;
+                    border-radius: 8px;
+                }
             </style>
         """, unsafe_allow_html=True)
 
     def update_event_input(self, event: str):
-        """更新事件输入状态"""
-        st.session_state.event_input = event
+        """更新事件输入状态 - 修改版避免widget冲突"""
+    # 先清除现有的输入widget
+        if "event_input" in st.session_state:
+          del st.session_state.event_input
+    
+    # 更新状态
         st.session_state.current_event = event
+        st.session_state.show_event_list = False  # 选择事件后隐藏列表
+    
+    # 设置新的输入值
+        st.session_state.event_input = event
+        st.rerun()
 
     def _get_filtered_events(self, search_term: str) -> List[str]:
         """获取过滤后的事件列表"""
@@ -408,32 +427,33 @@ class UIService:
             unsafe_allow_html=True
         )
 
-    def render_sidebar(self):
-        """渲染侧边栏内容"""
-        with st.sidebar:
-            st.title("🔍 事件列表")
-            # 搜索输入框
-            search_term = st.text_input("搜索事件", key="sidebar_search")
-            # 获取过滤和分页后的事件
-            matched_events = self._get_filtered_events(search_term)
-            page_events = self._get_paginated_events(matched_events)
-            # 显示事件列表
-            if page_events:
-                st.info("点击事件查看详细分析")
-                for event in page_events:
-                    if st.button(
-                        event,
-                        key=f"recent_{hash(event)}",
-                        use_container_width=True,
-                        help="点击查看该事件的预测历史"
-                    ):
-                        self.update_event_input(event)
-                        st.rerun()
-                # 分页控件
-                self._render_pagination_controls(matched_events)
-            else:
-                st.info("未找到匹配的事件")
-
+    def render_event_list(self):
+        """渲染事件列表（主页面版）"""
+        with st.expander("📚 历史事件列表", expanded=True):  # 固定为 True，默认展开
+           search_term = st.text_input("搜索历史事件", key="main_search", 
+                                  placeholder="输入关键词筛选事件")
+        
+           matched_events = self._get_filtered_events(search_term)
+           page_events = self._get_paginated_events(matched_events)
+        
+           if page_events:
+            st.info("点击事件查看详细分析")
+            for idx, event in enumerate(page_events):
+                # 使用事件内容和索引创建唯一key
+                btn_key = f"event_btn_{idx}_{hash(event)}"
+                if st.button(
+                    event,
+                    key=btn_key,
+                    use_container_width=True,
+                    help="点击查看该事件的预测历史"
+                ):
+                    self.update_event_input(event)
+                    st.rerun()
+            
+            # 分页控件
+            self._render_pagination_controls(matched_events)
+           else:
+            st.info("未找到匹配的事件")
     def render_prediction_chart(self, predictions_df: pd.DataFrame):
         """渲染预测趋势图"""
         fig = px.line(
@@ -479,22 +499,64 @@ class UIService:
             )
 
     def render_prediction_input(self):
-        """渲染预测输入区域"""
-        event_input = st.text_input(
-            "输入您想预测的事件",
-            key="event_input",
-            placeholder="例如：'2025年特朗普再次当选美国总统的可能性'"
-        )
-        if st.button(
-            "🚀 执行最新预测",
-            key="predict_button",
-            use_container_width=True,
-            type="primary"
-        ):
-            if not event_input or not event_input.strip():
-                st.warning("请输入有效的预测事件内容")
-            else:
-                self.handle_prediction_request(event_input)
+       """渲染预测输入区域 + AI生成事件建议"""
+       event_input = st.text_input(
+        "输入您想预测的事件",
+        value=st.session_state.get("new_event_input", ""),
+        key="new_event_input",
+        placeholder="例如：'2028年特朗普再次当选美国总统的可能性'"
+       )
+
+    # AI生成事件建议
+       with st.expander("🔍 生成预测事件建议（推荐）"):
+        categories = create_events.load_categories()
+
+        # 国家选择
+        country = st.selectbox("选择国家或地区", options=categories["countries"], key="country_selector")
+
+        # 大类选择
+        market_options = list(categories["market_categories"].keys())
+        market = st.selectbox("选择预测市场大类", options=market_options, key="market_selector")
+
+        # 小类选择
+        subcategory_options = categories["market_categories"][market]
+        subcategory = st.selectbox("选择预测市场小类", options=subcategory_options, key="subcategory_selector")
+
+        if st.button("生成事件建议", use_container_width=True):
+            with st.spinner("正在生成事件建议..."):
+                suggested_events = create_events.generate_suggested_events(country, market, subcategory)
+                if suggested_events:
+                    st.session_state.suggested_events = suggested_events
+                else:
+                    st.warning("未能生成事件，请稍后再试")
+
+        if "suggested_events" in st.session_state:
+            selected_event = st.selectbox("从建议中选择一个事件", options=st.session_state.suggested_events)
+            if st.button("使用该事件", use_container_width=True):
+                st.session_state.new_event_input = selected_event
+                st.session_state.current_event = selected_event
+                st.rerun()
+
+    # 提交预测按钮
+       if st.button(
+        "🚀 执行预测",
+        key="predict_button",
+        use_container_width=True,
+        type="primary"
+       ):
+        if not event_input or not event_input.strip():
+            st.warning("请输入有效的预测事件内容")
+        else:
+            self.handle_prediction_request(event_input)
+
+    # 切换历史事件列表显示
+       if st.button(
+        "📚 显示历史事件列表" if not st.session_state.show_event_list else "❌ 隐藏历史事件列表",
+        key="toggle_event_list",
+        use_container_width=True
+       ):
+        st.session_state.show_event_list = not st.session_state.show_event_list
+        st.rerun()
 
     def handle_prediction_request(self, event_text: str):
         """处理预测请求"""
@@ -509,6 +571,7 @@ class UIService:
                     st.session_state.current_event = event_text
                     st.success(f"✅ 预测成功！概率为：{probability}%")
                     st.session_state.refresh_cache = True
+                    st.session_state.events_cache = self.prediction_service.db_service.get_recent_events()
                     st.rerun()
                 else:
                     st.error("保存预测结果失败")
@@ -517,9 +580,9 @@ class UIService:
        """渲染事件详情区域（含分页的历史预测分析）"""
        current_event = st.session_state.current_event
        predictions_df = self.prediction_service.get_prediction_history(current_event)
-    
+
        if not predictions_df.empty:
-        st.subheader(f"📌 事件: {current_event}")
+        st.subheader(f"📌 事件分析: {current_event}")
         
         # 趋势图
         self.render_prediction_chart(predictions_df)
@@ -543,14 +606,20 @@ class UIService:
         end_idx = start_idx + items_per_page
         page_data = predictions_list[start_idx:end_idx]
 
-        # 分页控件
+        # 分页控件 - 添加唯一key
         col1, col2, col3 = st.columns([1, 2, 1])
         with col1:
-            if st.button("⬅️ 上一页", disabled=st.session_state.page_num == 1, use_container_width=True):
+            if st.button("⬅️ 上一页", 
+                       disabled=st.session_state.page_num == 1, 
+                       use_container_width=True,
+                       key=f"prev_page_{st.session_state.page_num}"):
                 st.session_state.page_num -= 1
                 st.rerun()
         with col3:
-            if st.button("下一页 ➡️", disabled=st.session_state.page_num >= total_pages, use_container_width=True):
+            if st.button("下一页 ➡️", 
+                       disabled=st.session_state.page_num >= total_pages, 
+                       use_container_width=True,
+                       key=f"next_page_{st.session_state.page_num}"):
                 st.session_state.page_num += 1
                 st.rerun()
         with col2:
@@ -560,7 +629,7 @@ class UIService:
             )
 
         # 展示当前页的预测分析
-        for pred in page_data:
+        for idx, pred in enumerate(page_data):
             with st.expander(f"📅 {pred['timestamp'].strftime('%Y-%m-%d %H:%M')} | {pred['probability']}%"):
                 db_reasoning = pred['reasoning']
                 if db_reasoning:
@@ -582,29 +651,32 @@ class UIService:
         st.info("暂无该事件的预测记录")
 
     def render_main_content(self):
-        """渲染主内容区域"""
-        st.title(Config.PAGE_TITLE)
-        with st.container():
-            # 信息卡片
-            st.markdown('''
-                <div class="info-card">
-                    <strong>使用说明:</strong> 输入您关心的事件，系统将分析其发生的概率。
-                    概率值范围0-100%，数值越高表示发生的可能性越大。
-                </div>
-            ''', unsafe_allow_html=True)
-            # 事件输入和预测
-            self.render_prediction_input()
-            # 事件详情展示
-            if st.session_state.current_event:
-                self.render_event_details()
-            else:
-                st.info("请选择或输入一个事件以开始预测")
-            # 页脚
-            st.markdown(
-                '<div class="footer">© 2025 动态事件概率预测系统 · 栖息地HABITATS</div>',
-                unsafe_allow_html=True
-            )
-
+       """渲染主内容区域"""
+       st.title(Config.PAGE_TITLE)
+    
+    # 信息卡片
+       st.markdown('''
+        <div class="info-card">
+            <strong>使用说明:</strong> 
+            1. 输入您关心的事件，系统将分析其发生的概率(0-100%)
+            2. 点击"显示历史事件列表"查看过往预测
+            3. 点击事件可查看详细分析
+        </div>
+    ''', unsafe_allow_html=True)
+    
+    # 预测输入区域
+       self.render_prediction_input()
+    
+    # 显示/隐藏事件列表
+       if st.session_state.show_event_list:
+        self.render_event_list()
+        # 如果正在显示事件列表，清空当前事件
+        st.session_state.current_event = ""
+       elif st.session_state.current_event:
+        # 如果选择了事件，显示详情
+        self.render_event_details()
+       else:
+        st.info("请输入一个新事件或点击\"显示历史事件列表\"选择历史事件")
 
 # ------------------------------
 # 主程序
@@ -612,7 +684,6 @@ class UIService:
 def main():
     """主应用程序入口"""
     ui_service = UIService()
-    ui_service.render_sidebar()
     ui_service.render_main_content()
 
 
