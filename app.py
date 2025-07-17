@@ -503,7 +503,7 @@ class UIService:
        """渲染预测输入区域 + AI生成事件建议"""
        event_input = st.text_input(
         "输入您想预测的事件",
-        value=st.session_state.get("new_event_input", ""),
+        value=st.session_state.selected_event_for_input or st.session_state.current_event,
         key="new_event_input",
         placeholder="例如：'2028年特朗普再次当选美国总统的可能性'"
        )
@@ -534,7 +534,7 @@ class UIService:
         if "suggested_events" in st.session_state:
             selected_event = st.selectbox("从建议中选择一个事件", options=st.session_state.suggested_events)
             if st.button("使用该事件", use_container_width=True):
-                st.session_state.new_event_input = selected_event
+                st.session_state.selected_event_for_input = selected_event
                 st.session_state.current_event = selected_event
                 st.rerun()
 
