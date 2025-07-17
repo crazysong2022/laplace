@@ -384,10 +384,7 @@ class UIService:
     
     # 更新状态
         st.session_state.current_event = event
-        st.session_state.show_event_list = False  # 选择事件后隐藏列表
-    
-    # 设置新的输入值
-        st.session_state.event_input = event
+        st.session_state.show_event_list = False  # 选择事件后隐藏列表   
         st.rerun()
 
     def _get_filtered_events(self, search_term: str) -> List[str]:
