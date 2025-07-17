@@ -538,7 +538,7 @@ class UIService:
     # ========================
        event_input = st.text_input(
         "输入您想预测的事件",
-        value=st.session_state.selected_event_for_input or st.session_state.get("current_event", ""),
+        value=st.session_state.selected_event_for_input or st.session_state.current_event,
         key="new_event_input",
         placeholder="例如：'2028年特朗普再次当选美国总统的可能性'"
        )
