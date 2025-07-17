@@ -295,6 +295,7 @@ class UIService:
         session_defaults = {
             "current_event": "",
             "new_event_input": "",
+            "selected_event_for_input": "",
             "events_cache": self.prediction_service.db_service.get_recent_events(),
             "refresh_cache": False,
             "event_page": 1,
