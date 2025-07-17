@@ -210,11 +210,17 @@ class PredictionService:
         cleaned_event = self.clean_event_text(event_question)
         current_date = datetime.now().strftime("%Y-%m-%d")
         prompt = {
-            "role": "user",
-            "content": f"""评估以下事件发生的概率(0-100整数):
-事件: {cleaned_event}
-当前日期: {current_date}
-请直接返回一个整数:"""
+          "role": "user",
+          "content": f"""请根据互联网上关于以下事件的最新新闻和相关信息，评估其在当前时间（{current_date}）发生的真实概率（0-100之间的整数）。如果你找不到确切信息，请说明原因。
+
+        事件描述:
+        "{cleaned_event}"
+
+        要求：
+        1. 优先参考最近的信息。
+        2. 如果有多个来源冲突，请综合分析后给出最终概率。
+        3. 你的输出必须是一个0到100之间的整数，不要添加任何额外文字或解释。
+        """
         }
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -508,37 +514,72 @@ class UIService:
                     st.error("保存预测结果失败")
 
     def render_event_details(self):
-        """渲染事件详情区域"""
-        current_event = st.session_state.current_event
-        predictions_df = self.prediction_service.get_prediction_history(current_event)
+       """渲染事件详情区域（含分页的历史预测分析）"""
+       current_event = st.session_state.current_event
+       predictions_df = self.prediction_service.get_prediction_history(current_event)
+    
+       if not predictions_df.empty:
+        st.subheader(f"📌 事件: {current_event}")
+        
+        # 趋势图
+        self.render_prediction_chart(predictions_df)
+        
+        # 最新预测值
+        self.render_latest_prediction(predictions_df)
 
-        if not predictions_df.empty:
-            st.subheader(f"📌 事件: {current_event}")
-            # 趋势图
-            self.render_prediction_chart(predictions_df)
-            # 最新预测值
-            self.render_latest_prediction(predictions_df)
+        st.markdown("### 🧠 历史预测分析")
 
-            st.markdown("### 🧠 历史预测分析")
-            predictions_list = predictions_df.to_dict(orient="records")
+        # 初始化 session_state 中的页码
+        if "page_num" not in st.session_state:
+            st.session_state.page_num = 1
 
-            for pred in predictions_list:
-                with st.expander(f"📅 {pred['timestamp'].strftime('%Y-%m-%d %H:%M')} | {pred['probability']}%"):
-                    db_reasoning = pred['reasoning']
-                    if db_reasoning:
-                        st.markdown(db_reasoning)
-                    else:
-                        with st.spinner("正在生成本次预测的分析..."):
-                            rs = ReasoningService()
-                            new_reasoning = rs.generate_reasoning_single(current_event, pred['probability'])
-                            if new_reasoning:
-                                self.prediction_service.db_service.update_prediction_reasoning(pred["id"], new_reasoning)
-                                st.markdown(new_reasoning)
-                            else:
-                                st.warning("无法生成本次预测的分析")
+        predictions_list = predictions_df.to_dict(orient="records")
+        total_predictions = len(predictions_list)
+        items_per_page = 5
+        total_pages = (total_predictions + items_per_page - 1) // items_per_page
 
-            # 留言系统
-            display_comments_section(current_event)
+        # 分页数据
+        start_idx = (st.session_state.page_num - 1) * items_per_page
+        end_idx = start_idx + items_per_page
+        page_data = predictions_list[start_idx:end_idx]
+
+        # 分页控件
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col1:
+            if st.button("⬅️ 上一页", disabled=st.session_state.page_num == 1, use_container_width=True):
+                st.session_state.page_num -= 1
+                st.rerun()
+        with col3:
+            if st.button("下一页 ➡️", disabled=st.session_state.page_num >= total_pages, use_container_width=True):
+                st.session_state.page_num += 1
+                st.rerun()
+        with col2:
+            st.markdown(
+                f"<div style='text-align:center; margin-top:8px;'>第 {st.session_state.page_num} 页 / 共 {total_pages} 页</div>",
+                unsafe_allow_html=True,
+            )
+
+        # 展示当前页的预测分析
+        for pred in page_data:
+            with st.expander(f"📅 {pred['timestamp'].strftime('%Y-%m-%d %H:%M')} | {pred['probability']}%"):
+                db_reasoning = pred['reasoning']
+                if db_reasoning:
+                    st.markdown(db_reasoning)
+                else:
+                    with st.spinner("正在生成本次预测的分析..."):
+                        rs = ReasoningService()
+                        new_reasoning = rs.generate_reasoning_single(current_event, pred['probability'])
+                        if new_reasoning:
+                            self.prediction_service.db_service.update_prediction_reasoning(pred["id"], new_reasoning)
+                            st.markdown(new_reasoning)
+                        else:
+                            st.warning("无法生成本次预测的分析")
+
+        # 留言系统
+        display_comments_section(current_event)
+
+       else:
+        st.info("暂无该事件的预测记录")
 
     def render_main_content(self):
         """渲染主内容区域"""

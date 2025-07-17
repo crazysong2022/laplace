@@ -1,48 +1,35 @@
-# reasoning.py
 import os
 import re
 import requests
 from typing import Optional
+from datetime import datetime
 
 class ReasoningService:
     def __init__(self):
         self.api_key = os.getenv("PERPLEXITY_API_KEY")
         self.api_url = "https://api.perplexity.ai/chat/completions"
 
-    def generate_reasoning(self, event: str, predictions: list) -> Optional[str]:
+    def generate_reasoning_single(self, event: str, probability: int, created_at: datetime = None) -> Optional[str]:
         """
-        为整个事件生成总结性分析
+        为单次预测生成分析，AI会根据事件语言自动使用相同语言输出，并结合时间背景解释概率
         """
-        if not predictions:
-            return None
+        time_context = self._format_time_context(created_at)
 
-        # 构建提示词
         prompt = f"""
-        请用中文分析以下事件的可能性：
-        事件：“{event}”
-        
-        历史预测记录：
-        {self._format_predictions(predictions)}
-        
-        要求：
-        - 控制在200字以内
-        - 只输出分析内容，不带任何格式
-        """
-        return self._call_api(prompt)
+        You are a professional analyst AI that answers in the same language as the input event.
 
-    def generate_reasoning_single(self, event: str, probability: int) -> Optional[str]:
+        Event: "{event}"
+        Predicted Probability: {probability}%
+        Time Context: {time_context}
+
+        Please analyze why this probability was given:
+        1. Consider the context of the event and its time of creation
+        2. Explain your reasoning clearly
+        3. Output only the analysis, no formatting
+        4. Use the SAME LANGUAGE as the event text
+        5. Keep it under 150 words
         """
-        为单次预测生成分析
-        """
-        prompt = f"""
-        请用中文简要分析以下事件的可能性：
-        事件：“{event}”
-        预测概率：{probability}%
-        
-        要求：
-        - 控制在150字以内
-        - 只输出分析内容，不带任何格式
-        """
+
         return self._call_api(prompt)
 
     def _call_api(self, prompt: str) -> Optional[str]:
@@ -57,7 +44,7 @@ class ReasoningService:
         payload = {
             "model": "sonar-pro",
             "messages": [
-                {"role": "system", "content": "你是一个专业的事件分析AI，输出简洁易懂的解释"},
+                {"role": "system", "content": "You are a professional analyst AI that answers in the same language as the input event."},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.5,
@@ -76,12 +63,8 @@ class ReasoningService:
             print(f"调用API出错: {e}")
             return None
 
-    def _format_predictions(self, predictions: list) -> str:
-        """
-        格式化历史预测数据用于提示词
-        """
-        lines = []
-        for pred in predictions:
-            time_str = pred['timestamp'].strftime("%Y-%m-%d %H:%M") if 'timestamp' in pred else "未知时间"
-            lines.append(f"- 时间: {time_str} | 概率: {pred['probability']}%")
-        return "\n".join(lines)
+    def _format_time_context(self, created_at: datetime) -> str:
+        """格式化创建时间为自然语言描述"""
+        if not created_at:
+            return "unknown time"
+        return created_at.strftime("%B %d, %Y")  # 英文格式，例如 "July 17, 2025"
