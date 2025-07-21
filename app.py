@@ -321,6 +321,14 @@ class UIService:
                     background-color: #f8f9fa;
                     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 }
+                .info-card {
+                    background-color: #e9ecef;
+                    padding: 15px;
+                    border-left: 5px solid #007bff;
+                    margin-bottom: 15px;
+                    border-radius: 5px;
+                    color: #333;  /* 添加这行，设置深色字体 */
+                }
                 .predict-button {
                     background-color: #007bff;
                     color: white;
@@ -377,14 +385,15 @@ class UIService:
         """, unsafe_allow_html=True)
 
     def update_event_input(self, event: str):
-        """更新事件输入状态 - 修改版避免widget冲突"""
+        """更新事件输入状态，并判断是否允许预测"""
     # 先清除现有的输入widget
         if "event_input" in st.session_state:
           del st.session_state.event_input
     
     # 更新状态
         st.session_state.current_event = event
-        st.session_state.show_event_list = False  # 选择事件后隐藏列表   
+        st.session_state.show_event_list = False  # 选择事件后隐藏列表  
+        self.handle_prediction_request(event) 
         st.rerun()
 
     def _get_filtered_events(self, search_term: str) -> List[str]:
@@ -498,93 +507,59 @@ class UIService:
             )
 
     def render_prediction_input(self):
-       """渲染预测输入区域 + AI生成事件建议（优化版）"""
+       """渲染预测输入区域 + AI生成事件建议（简化版）"""
     
-    # ========================
     # AI生成事件建议区域
-    # ========================
-       with st.expander("🔍 AI生成事件建议（可选）", expanded=False):
+       with st.expander("🔍 AI生成事件建议（推荐）", expanded=False):
         categories = create_events.load_categories()
-
-        # 国家选择
-        country = st.selectbox("选择国家或地区", 
-                             options=categories["countries"], 
-                             key="country_selector")
-
-        # 大类选择
-        market_options = list(categories["market_categories"].keys())
-        market = st.selectbox("选择预测市场大类", 
-                            options=market_options, 
-                            key="market_selector")
-
-        # 小类选择
-        subcategory_options = categories["market_categories"][market]
+        country = st.selectbox("选择国家或地区", options=categories["countries"], key="country_selector")
+        market = st.selectbox("选择预测市场大类", options=list(categories["market_categories"].keys()), key="market_selector")
         subcategory = st.selectbox("选择预测市场小类", 
-                                 options=subcategory_options, 
+                                 options=categories["market_categories"][market], 
                                  key="subcategory_selector")
 
-        if st.button("生成事件建议", 
-                    use_container_width=True, 
-                    key="generate_suggested_events"):
+        if st.button("生成事件建议", use_container_width=True, key="generate_suggested_events"):
             with st.spinner("正在生成事件建议..."):
-                suggested_events = create_events.generate_suggested_events(
-                    country, market, subcategory
-                )
-                if suggested_events:
-                    st.session_state.suggested_events = suggested_events
-                else:
-                    st.warning("未能生成事件，请稍后再试")
+                suggested_events = create_events.generate_suggested_events(country, market, subcategory)
+                st.session_state.suggested_events = suggested_events if suggested_events else None
 
-        if "suggested_events" in st.session_state:
+        if "suggested_events" in st.session_state and st.session_state.suggested_events:
             st.markdown("#### 📋 事件建议列表")
             for idx, event in enumerate(st.session_state.suggested_events):
-                if st.button(f"✅ {event}", 
-                           key=f"event_suggestion_{idx}", 
-                           use_container_width=True):
-                    st.session_state.new_event_input = event  # 直接更新输入框值
+                if st.button(f"✅ {event}", key=f"event_suggestion_{idx}", use_container_width=True):
+                    st.session_state.new_event_input = event
                     st.session_state.current_event = event
                     st.rerun()
 
-    # ========================
-    # 事件输入区域（修正版）
-    # ========================
-    # 初始化输入框值
+    # 事件输入区域
        if "new_event_input" not in st.session_state:
-        st.session_state.new_event_input = (
-            st.session_state.selected_event_for_input 
-            or st.session_state.current_event
-            or ""
-        )
+        st.session_state.new_event_input = ""
 
        event_input = st.text_input(
         "输入您想预测的事件",
-        key="new_event_input",  # 只使用key，不设置value参数
+        value=st.session_state.new_event_input,
+        key="event_input_main",
         placeholder="例如：'2028年特朗普再次当选美国总统的可能性'"
-       )
+      )
 
-    # 提交预测按钮
-       if st.button(
-        "🚀 执行预测",
-        key="predict_button",
-        use_container_width=True,
-        type="primary"
-       ):
-        if not event_input or not event_input.strip():
+    # 执行预测按钮
+       if st.button("🚀 执行预测", key="predict_button", use_container_width=True, type="primary"):
+        if not event_input.strip():
             st.warning("请输入有效的预测事件内容")
         else:
             self.handle_prediction_request(event_input)
+            st.session_state.new_event_input = ""  # 清空输入框
+            st.rerun()
 
-    # 切换历史事件列表显示
-       if st.button(
-        "📚 显示历史事件列表" if not st.session_state.show_event_list else "❌ 隐藏历史事件列表",
-        key="toggle_event_list",
-        use_container_width=True
-       ):
+    # 列表切换按钮（单独一行）
+       list_btn_text = "📚 显示历史事件列表" if not st.session_state.show_event_list else "❌ 隐藏历史事件列表"
+       if st.button(list_btn_text, key="toggle_event_list", use_container_width=True):
         st.session_state.show_event_list = not st.session_state.show_event_list
+        st.session_state.current_event = ""
         st.rerun()
 
     def handle_prediction_request(self, event_text: str):
-        """处理预测请求"""
+        
         with st.spinner("正在分析预测..."):
             probability = self.prediction_service.get_prediction(event_text)
             if probability is not None:
@@ -594,10 +569,10 @@ class UIService:
                     success = self.prediction_service.save_prediction(event_text, probability, new_reasoning)
                 if success:
                     st.session_state.current_event = event_text
-                    st.success(f"✅ 预测成功！概率为：{probability}%")
+                    st.session_state.show_event_list = False  # 确保显示详情而不是列表
                     st.session_state.refresh_cache = True
                     st.session_state.events_cache = self.prediction_service.db_service.get_recent_events()
-                    st.rerun()
+                    st.success(f"✅ 预测成功！概率为：{probability}%")
                 else:
                     st.error("保存预测结果失败")
 
@@ -685,7 +660,7 @@ class UIService:
             <strong>使用说明:</strong> 
             1. 输入您关心的事件，系统将分析其发生的概率(0-100%)
             2. 点击"显示历史事件列表"查看过往预测
-            3. 点击事件可查看详细分析
+            3. 进入事件可查看历次预测详细分析
         </div>
     ''', unsafe_allow_html=True)
     
